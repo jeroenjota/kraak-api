@@ -356,7 +356,7 @@ const start = async () => {
         // console.log(`Controleer team: ${team} of ${team2}`);
         if (!geplaatsteTeams.has(team) && !geplaatsteTeams.has(team2)) ranglijst.push(team);
       });
-      console.log("Ranglijst:", ranglijst);
+      // console.log("Ranglijst:", ranglijst);
       ranglijst.forEach((team, positie) => {
         if (!team) return;
         const punten = positie < 4 ? puntenSchema[positie] : deelnamePunt
@@ -489,7 +489,7 @@ const start = async () => {
     // dit is nodig omdat de teams in de localStorage kunnen worden aangepast
     // en we willen niet dat de oude teams blijven staan
     // await pool.execute("DELETE FROM spelers");  
-    await pool.execute("DELETE FROM kraakTeams");
+    // await pool.execute("DELETE FROM kraakTeams");
 
     const insertedTeamIds = [];
     for (const team of teams) {
@@ -499,7 +499,9 @@ const start = async () => {
       try {
         const sp1Id = await getOrCreatePlayer(sp1Naam);
         const sp2Id = await getOrCreatePlayer(sp2Naam);
-
+        // isNewTeam voegt team toe als het niet bestaat
+        // en retourneert true
+        // anders false
         const teamExists = await isNewTeam(sp1Id, sp2Id);
         if (!teamExists) {
           insertedTeamIds.push({ spelers: [sp1Naam, sp2Naam] });
