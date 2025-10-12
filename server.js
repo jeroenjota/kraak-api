@@ -186,10 +186,10 @@ const start = async () => {
   });
 
   app.get("/toernooien", async (req, res) => {
-    // opschonen database, teams zonder deelnames verwijderen 
-    await cleanKraakTeams();
-    // en spelers zonder teams verwijderen
-    await cleanSpelersTable();
+    // // opschonen database, teams zonder deelnames verwijderen 
+    // await cleanKraakTeams();
+    // // en spelers zonder teams verwijderen
+    // await cleanSpelersTable();
 
     const [rows] = await pool.execute(
       "SELECT * FROM kraaktoernooien ORDER BY datum DESC"
@@ -272,6 +272,17 @@ const start = async () => {
   app.get("/spelers", async (req, res) => {
     const [rows] = await pool.execute("SELECT * FROM spelers ORDER BY naam ASC");
     res.json(rows);
+  });
+
+  app.post("/cleanTeamsAndPlayers", async (req, res) => {
+    const teamsVerwijderd = await cleanKraakTeams();
+    const spelersVerwijderd = await cleanSpelersTable();
+
+    // console.log(`Opgeruimd: ${teamsVerwijderd.length} teams en ${spelersVerwijderd.length} spelers.`);
+    // console.log("Teams verwijderd:", teams);
+    // console.log("Spelers verwijderd:", spelers);
+    const aantal = teamsVerwijderd.length + spelersVerwijderd.length;
+    res.json({success: true, aantal: aantal, items: {teams: teamsVerwijderd, spelers: spelersVerwijderd} });
   });
 
   function calculateTeamScores(matches, teams) {
@@ -449,6 +460,16 @@ const start = async () => {
 
   async function cleanSpelersTable() {
     // Verwijder spelers die niet in een team zitten
+    const deletedSpelers = await pool.execute(`
+      SELECT * from spelers WHERE id NOT IN (
+        SELECT speler1 FROM kraakTeams
+        UNION
+        SELECT speler2 FROM kraakTeams
+      ) 
+    `);
+    // console.log("Spelers zonder team:", deletedSpelers[0]);
+    if (deletedSpelers[0].length === 0) return [];
+    // verwijder deze spelers
     await pool.execute(`
       DELETE FROM spelers 
       WHERE id NOT IN (
@@ -457,7 +478,8 @@ const start = async () => {
         SELECT speler2 FROM kraakTeams
       )
     `);
-    console.log("Spelers zonder team verwijderd");
+    return deletedSpelers[0].map(speler => speler.naam);
+    // console.log("Spelers zonder team verwijderd");
   }
 
   // verwijder teams die geen enkel toernooi hebben gespeeld
@@ -470,7 +492,7 @@ const start = async () => {
                     ORDER BY team`;
 
     const [rows] = await pool.execute(sqlStr);
-    if (rows.length === 0) return;
+    if (rows.length === 0) return 0;
     const teams = rows.map(row => row.team);
     // console.log("Teams in kraakTeams:", teams);
     const matchTeams = await pool.execute(`
@@ -488,6 +510,9 @@ const start = async () => {
     // vergelijk de twee lijsten en verwijder teams die niet in toernooien voorkomen
     const teamsToDelete = teams.filter(team => !teamsInToernooien.includes(normalizeTeam(team)));
     // console.log("Te verwijderen teams:", teamsToDelete.length, teamsToDelete);
+    
+    if (teamsToDelete.length === 0) return [];
+
     for (const team of teamsToDelete) {
       const [sp1, sp2] = team.split("/");
       try {
@@ -502,6 +527,8 @@ const start = async () => {
         console.error(`Fout bij verwijderen team ${team}:`, err);
       }
     }
+    // console.log("Teams zonder toernooien verwijderd:", teamsToDelete);
+    return teamsToDelete
   }
 
   function normalizeTeam(teamName) {
