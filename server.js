@@ -186,6 +186,11 @@ const start = async () => {
   });
 
   app.get("/toernooien", async (req, res) => {
+    // opschonen database, teams zonder deelnames verwijderen 
+    await cleanKraakTeams();
+    // en spelers zonder teams verwijderen
+    await cleanSpelersTable();
+
     const [rows] = await pool.execute(
       "SELECT * FROM kraaktoernooien ORDER BY datum DESC"
     );
@@ -298,6 +303,7 @@ const start = async () => {
     return teamScores;
   }
   const getSpelersLijst = async () => {
+    // remove spelers die niet in een team zitten
     const [rows] = await pool.execute("SELECT * FROM spelers ORDER BY naam ASC");
     return rows;
   };
@@ -326,7 +332,6 @@ const start = async () => {
       // Verwerk de teams
       // groepstoernooi
       if (groepstoernooi) {
-        //TODO foutje in de raking bij groepstoernooi oplossen
         const [finale, derdePlek] = finalMatches
         const winnaar = finale.scoreR > finale.scoreL ? finale.teamR : finale.teamL;
         const tweede = winnaar === finale.teamR ? finale.teamL : finale.teamR;
@@ -365,7 +370,7 @@ const start = async () => {
           // if(speler.trim() !== ""){
           //   console.log(`index: ${index}, Toernooi ${toernooi.datum}, team: ${team}, speler: ${speler}, positie: ${positie + 1}, punten: ${punten}`);
           // }
-          
+
           updateScore(spelerScores, speler, punten, toernooi.datum);
           updateTotaal(spelerScores, speler);
         });
@@ -377,7 +382,7 @@ const start = async () => {
       // console.log(`Speler: ${speler}, Resultaten:`, scores);
       return { speler, totaal, scores };
     });
-    // TODO remove spelers die geen enkel toernooi hebben gespeeld. Dat zijn test spelers en die komen anders toch in de rankinglijst
+
     ranking.sort((a, b) => b.totaal - a.totaal);
     updateRanking(ranking);
     // console.log("Ranglijst:", ranking);
@@ -440,6 +445,68 @@ const start = async () => {
       [naam]
     );
     return result.insertId;
+  }
+
+  async function cleanSpelersTable() {
+    // Verwijder spelers die niet in een team zitten
+    await pool.execute(`
+      DELETE FROM spelers 
+      WHERE id NOT IN (
+        SELECT speler1 FROM kraakTeams
+        UNION
+        SELECT speler2 FROM kraakTeams
+      )
+    `);
+    console.log("Spelers zonder team verwijderd");
+  }
+
+  // verwijder teams die geen enkel toernooi hebben gespeeld
+  async function cleanKraakTeams() {
+    // vul een array met de namen van teamSpelers
+    const sqlStr = `SELECT CONCAT(sp1.naam, '/', sp2.naam) AS team 
+                    FROM laurierboom.kraakTeams kt
+                    INNER JOIN spelers sp1 ON kt.speler1 = sp1.id
+                    INNER JOIN spelers sp2 ON kt.speler2 = sp2.id
+                    ORDER BY team`;
+
+    const [rows] = await pool.execute(sqlStr);
+    if (rows.length === 0) return;
+    const teams = rows.map(row => row.team);
+    // console.log("Teams in kraakTeams:", teams);
+    const matchTeams = await pool.execute(`
+      SELECT teams FROM kraaktoernooien
+    `);
+    const tnTeams = matchTeams[0].map(row => row.teams);
+    // console.log("Teams in toernooien (geflatteerd):", tnTeams);
+    if (tnTeams.length === 0) return;
+    const parsedTeams = tnTeams.map(item => JSON.parse(item || "[]")).flat();
+    // console.log("Teams in toernooien (geflatteerd):", parsedTeams.length, parsedTeams);
+    // console.log("Teams[0]:", tnTeams[0].length, tnTeams[0]);
+    // maak een set van teams die in toernooien voorkomen
+    const teamsInToernooien = [...new Set(parsedTeams)].map(team => normalizeTeam(team)).sort();
+    // console.log("Unieke teams in toernooien:", teamsInToernooien);
+    // vergelijk de twee lijsten en verwijder teams die niet in toernooien voorkomen
+    const teamsToDelete = teams.filter(team => !teamsInToernooien.includes(normalizeTeam(team)));
+    // console.log("Te verwijderen teams:", teamsToDelete.length, teamsToDelete);
+    for (const team of teamsToDelete) {
+      const [sp1, sp2] = team.split("/");
+      try {
+        const [result] = await pool.execute(
+          `DELETE kt FROM kraakTeams kt
+           INNER JOIN spelers sp1 ON kt.speler1 = sp1.id
+           INNER JOIN spelers sp2 ON kt.speler2 = sp2.id
+           WHERE (sp1.naam = ? AND sp2.naam = ?) OR (sp1.naam = ? AND sp2.naam = ?)`,
+          [sp1, sp2, sp2, sp1]
+        );
+      } catch (err) {
+        console.error(`Fout bij verwijderen team ${team}:`, err);
+      }
+    }
+  }
+
+  function normalizeTeam(teamName) {
+    const [sp1, sp2] = teamName.split("/");
+    return [sp1, sp2].sort().join("/");
   }
 
   async function isNewTeam(speler1Id, speler2Id) {
