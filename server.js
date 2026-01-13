@@ -98,15 +98,15 @@ const start = async () => {
 
   app.get('/ping', (req, res) => {
     res.status(200).json({ status: 'ok' });
-    // console.log('Ping ontvangen, server is actief');
+//    // console.log('Ping ontvangen, server is actief');
   });
 
 
   app.put("/toernooien/:id", async (req, res) => {
     const { id } = req.params;
     const { teams, matches, groups, groupMatches, finalMatches, groepsToernooi, repeatRounds, pdfUrl } = req.body;
-    // console.log('Update toernooi ontvangen:', req.body);
-    // console.log('Update toernooi data:', {teams, matches, groups, groupMatches, finalMatches, groepsToernooi, repeatRounds });
+//    // console.log('Update toernooi ontvangen:', req.body);
+//    // console.log('Update toernooi data:', {teams, matches, groups, groupMatches, finalMatches, groepsToernooi, repeatRounds });
     try {
       const sqlStr = 'UPDATE kraaktoernooien SET teams = ?, matches = ?, groups = ?, groupMatches = ?, finalMatches = ?, groepsToernooi = ?, repeatRounds = ?, pdfUrl = ? WHERE id = ?';
       await pool.execute(sqlStr, [
@@ -131,7 +131,7 @@ const start = async () => {
     const filename = req.file.originalname.replace(/\s+/g, '-');
 
     const filepath = path.join('/var/www/laurierboom/uploads/pdfs/', filename);
-    // console.log(`Bestand ontvangen: ${filename}, opslaan als: ${filepath}`);
+//    // console.log(`Bestand ontvangen: ${filename}, opslaan als: ${filepath}`);
 
     fs.rename(req.file.path, filepath, (err) => {
       if (err) return res.status(500).json({ error: 'Failed to save PDF' });
@@ -142,7 +142,7 @@ const start = async () => {
   app.get('/pdf-exists/:filename', (req, res) => {
     const filename = req.params.filename.replace(/\s+/g, '-');
     const filepath = path.join('/var/www/laurierboom/uploads/pdfs/', filename);
-    // console.log(`Controleren of PDF bestaat: ${filepath}`);
+//    // console.log(`Controleren of PDF bestaat: ${filepath}`);
     fs.access(filepath, fs.constants.F_OK, (err) => {
       if (err) {
         return res.json({ exists: false });
@@ -153,9 +153,9 @@ const start = async () => {
   });
 
   app.post("/toernooien", async (req, res) => {
-    // console.log('Nieuwe toernooi ontvangen:', req.body);
+//    // console.log('Nieuwe toernooi ontvangen:', req.body);
     const { datum, teams, matches, groups, groupMatches, finalMatches, groepsToernooi, repeatRounds, pdfUrl } = req.body;
-    // console.log('Nieuwe toernooi data:', { datum, teams, matches, groups, groupMatches, finalMatches, groepsToernooi, repeatRounds, pdfUrl });
+//    // console.log('Nieuwe toernooi data:', { datum, teams, matches, groups, groupMatches, finalMatches, groepsToernooi, repeatRounds, pdfUrl });
     const [existing] = await pool.execute('SELECT * FROM kraaktoernooien WHERE datum = ?', [datum]);
     if (existing.length > 0) {
       return
@@ -221,7 +221,7 @@ const start = async () => {
       if (rows.length === 0) {
         return res.status(204).json({ error: "Geen toernooi gevonden voor deze datum" });
       }
-      // console.log("Toernooi gevonden:", rows[0]);
+//      // console.log("Toernooi gevonden:", rows[0]);
       res.json(rows[0]);
     } catch (error) {
       console.error("Fout bij ophalen toernooi:", error);
@@ -235,14 +235,14 @@ const start = async () => {
     const sqlStr = "Select pdfUrl from kraaktoernooien where id = " + id;
     const [rows] = await pool.execute(sqlStr);
     if (rows.length === 0) {
-      // console.log(`Toernooi met id ${id} niet gevonden`);
+//      // console.log(`Toernooi met id ${id} niet gevonden`);
       return res.status(404).json({ error: "Toernooi niet gevonden" });
     }
     const filename = rows[0].pdfUrl;
     const filepath = path.join('/var/www/laurierboom/uploads/pdfs/', filename);
     if (fs.existsSync(filepath)) {
       fs.unlinkSync(filepath);
-      // console.log(`PDF verwijderd: ${filepath}`);
+//      // console.log(`PDF verwijderd: ${filepath}`);
     } else {
       console.warn(`PDF niet gevonden: ${filepath}`);
     }
@@ -251,7 +251,7 @@ const start = async () => {
       [id]
     );
     if (result.affectedRows === 0) {
-      // console.log(`Toernooi met id ${id} niet gevonden`);
+//      // console.log(`Toernooi met id ${id} niet gevonden`);
       return res.status(404).json({ error: "Toernooi niet gevonden" });
     }
 
@@ -278,30 +278,30 @@ const start = async () => {
     const teamsVerwijderd = await cleanKraakTeams();
     const spelersVerwijderd = await cleanSpelersTable();
 
-    // console.log(`Opgeruimd: ${teamsVerwijderd.length} teams en ${spelersVerwijderd.length} spelers.`);
-    // console.log("Teams verwijderd:", teams);
-    // console.log("Spelers verwijderd:", spelers);
+//    // console.log(`Opgeruimd: ${teamsVerwijderd.length} teams en ${spelersVerwijderd.length} spelers.`);
+//    // console.log("Teams verwijderd:", teams);
+//    // console.log("Spelers verwijderd:", spelers);
     const aantal = teamsVerwijderd.length + spelersVerwijderd.length;
     res.json({success: true, aantal: aantal, items: {teams: teamsVerwijderd, spelers: spelersVerwijderd} });
   });
 
   function calculateTeamScores(matches, teams) {
-    // console.log("Bereken team scores voor teams:", matches);
+//    // console.log("Bereken team scores voor teams:", matches);
     const teamScores = teams.map((team, index) => ({ team, punten: 0 }));
-    // console.log("Bereken team scores voor teams:", teamScores);
+//    // console.log("Bereken team scores voor teams:", teamScores);
     matches.forEach((round, index) => {
       round.forEach((tafel) => {
-        // console.log(`Ronde ${index + 1}: ${JSON.stringify(tafel)}`);
+//        // console.log(`Ronde ${index + 1}: ${JSON.stringify(tafel)}`);
         const teamLIndex = teams.indexOf(tafel.teamL);
         const teamRIndex = teams.indexOf(tafel.teamR);
-        // console.log(`Team L index: ${teamLIndex}, Team R index: ${teamRIndex}`);
+//        // console.log(`Team L index: ${teamLIndex}, Team R index: ${teamRIndex}`);
         if (teamLIndex === -1 || teamRIndex === -1) {
           console.warn(`Team niet gevonden: ${tafel.teamL} of ${tafel.teamR}`);
           return;
         }
         teamScores[teamLIndex].punten += tafel.scoreL;
         teamScores[teamRIndex].punten += tafel.scoreR;
-        // console.log(`Team L (${teamScores[teamLIndex].team}) score: ${tafel.scoreL}, Team R (${teamScores[teamRIndex].team}) score: ${tafel.scoreR}`);
+//        // console.log(`Team L (${teamScores[teamLIndex].team}) score: ${tafel.scoreL}, Team R (${teamScores[teamRIndex].team}) score: ${tafel.scoreR}`);
       });
     });
 
@@ -322,7 +322,7 @@ const start = async () => {
   app.get("/ranking", async (req, res) => {
     const allSpelers = await getSpelersLijst();
     const [toernooien] = await pool.execute("SELECT datum, teams, matches, finalMatches, groepstoernooi FROM kraaktoernooien");
-    // console.log("Toernooien:", toernooien);
+//    // console.log("Toernooien:", toernooien);
     const puntenSchema = [12, 9, 6, 3];
     const spelerScores = {}
     toernooien.forEach((toernooi) => {
@@ -333,7 +333,7 @@ const start = async () => {
         }
         spelerScores[player.naam].scores.push({ datum: toernooi.datum, punten: 0 });
       });
-      // console.log("Toernooi:", toernooi.datum);
+//      // console.log("Toernooi:", toernooi.datum);
       const teams = JSON.parse(toernooi.teams || "[]");
       const matches = JSON.parse(toernooi.matches || "[]");
       const finalMatches = JSON.parse(toernooi.finalMatches || "[]");
@@ -350,12 +350,12 @@ const start = async () => {
         const vierde = derde === derdePlek.teamR ? derdePlek.teamL : derdePlek.teamR;
 
         ranglijst = [winnaar, tweede, derde, vierde];
-        //console.log("Ranglijst voor groepstoernooi:", ranglijst);
+//        //console.log("Ranglijst voor groepstoernooi:", ranglijst);
 
       } else {
         // reguliere toernooi
         const teamScores = calculateTeamScores(JSON.parse(toernooi.matches || "[]"), teams);
-        // console.log("Team scores:", teamScores);
+//        // console.log("Team scores:", teamScores);
         // Wijs de teams toe aan de ranglijst
         for (let i = 0; i < 4; i++) {
           if (i >= teamScores.length) break; // Stop als er minder dan 4 teams zijn
@@ -369,17 +369,17 @@ const start = async () => {
         // voor het geval de teamspelers in een andere volgorde staan
         const tmSpelers = team.split("/");
         const team2 = `${tmSpelers[1]}/${tmSpelers[0]}`;
-        // console.log(`Controleer team: ${team} of ${team2}`);
+//        // console.log(`Controleer team: ${team} of ${team2}`);
         if (!geplaatsteTeams.has(team) && !geplaatsteTeams.has(team2)) ranglijst.push(team);
       });
-      // console.log("Ranglijst:", ranglijst);
+//      // console.log("Ranglijst:", ranglijst);
       ranglijst.forEach((team, positie) => {
         if (!team) return;
         const punten = positie < 4 ? puntenSchema[positie] : deelnamePunt
         const spelers = team.split("/");
         spelers.forEach((speler, index) => {
           // if(speler.trim() !== ""){
-          //   console.log(`index: ${index}, Toernooi ${toernooi.datum}, team: ${team}, speler: ${speler}, positie: ${positie + 1}, punten: ${punten}`);
+//          //   console.log(`index: ${index}, Toernooi ${toernooi.datum}, team: ${team}, speler: ${speler}, positie: ${positie + 1}, punten: ${punten}`);
           // }
 
           updateScore(spelerScores, speler, punten, toernooi.datum);
@@ -388,15 +388,15 @@ const start = async () => {
       })
 
     })
-    // console.log("Speler scores:", spelerScores);
+//    // console.log("Speler scores:", spelerScores);
     const ranking = Object.entries(spelerScores).map(([speler, { totaal, scores }]) => {
-      // console.log(`Speler: ${speler}, Resultaten:`, scores);
+//      // console.log(`Speler: ${speler}, Resultaten:`, scores);
       return { speler, totaal, scores };
     });
 
     ranking.sort((a, b) => b.totaal - a.totaal);
     updateRanking(ranking);
-    // console.log("Ranglijst:", ranking);
+//    // console.log("Ranglijst:", ranking);
     res.json(ranking);
 
   });
@@ -467,7 +467,7 @@ const start = async () => {
         SELECT speler2 FROM kraakTeams
       ) 
     `);
-    // console.log("Spelers zonder team:", deletedSpelers[0]);
+//    // console.log("Spelers zonder team:", deletedSpelers[0]);
     if (deletedSpelers[0].length === 0) return [];
     // verwijder deze spelers
     await pool.execute(`
@@ -479,7 +479,7 @@ const start = async () => {
       )
     `);
     return deletedSpelers[0].map(speler => speler.naam);
-    // console.log("Spelers zonder team verwijderd");
+//    // console.log("Spelers zonder team verwijderd");
   }
 
   // verwijder teams die geen enkel toernooi hebben gespeeld
@@ -494,22 +494,22 @@ const start = async () => {
     const [rows] = await pool.execute(sqlStr);
     if (rows.length === 0) return 0;
     const teams = rows.map(row => row.team);
-    // console.log("Teams in kraakTeams:", teams);
+//    // console.log("Teams in kraakTeams:", teams);
     const matchTeams = await pool.execute(`
       SELECT teams FROM kraaktoernooien
     `);
     const tnTeams = matchTeams[0].map(row => row.teams);
-    // console.log("Teams in toernooien (geflatteerd):", tnTeams);
+//    // console.log("Teams in toernooien (geflatteerd):", tnTeams);
     if (tnTeams.length === 0) return;
     const parsedTeams = tnTeams.map(item => JSON.parse(item || "[]")).flat();
-    // console.log("Teams in toernooien (geflatteerd):", parsedTeams.length, parsedTeams);
-    // console.log("Teams[0]:", tnTeams[0].length, tnTeams[0]);
+//    // console.log("Teams in toernooien (geflatteerd):", parsedTeams.length, parsedTeams);
+//    // console.log("Teams[0]:", tnTeams[0].length, tnTeams[0]);
     // maak een set van teams die in toernooien voorkomen
     const teamsInToernooien = [...new Set(parsedTeams)].map(team => normalizeTeam(team)).sort();
-    // console.log("Unieke teams in toernooien:", teamsInToernooien);
+//    // console.log("Unieke teams in toernooien:", teamsInToernooien);
     // vergelijk de twee lijsten en verwijder teams die niet in toernooien voorkomen
     const teamsToDelete = teams.filter(team => !teamsInToernooien.includes(normalizeTeam(team)));
-    // console.log("Te verwijderen teams:", teamsToDelete.length, teamsToDelete);
+//    // console.log("Te verwijderen teams:", teamsToDelete.length, teamsToDelete);
     
     if (teamsToDelete.length === 0) return [];
 
@@ -527,7 +527,7 @@ const start = async () => {
         console.error(`Fout bij verwijderen team ${team}:`, err);
       }
     }
-    // console.log("Teams zonder toernooien verwijderd:", teamsToDelete);
+//    // console.log("Teams zonder toernooien verwijderd:", teamsToDelete);
     return teamsToDelete
   }
 
@@ -566,9 +566,9 @@ const start = async () => {
     const teams = await Promise.all(rows.map(async row => ({
       team: `${await getNaamById(row.speler1)}/${await getNaamById(row.speler2)}`,
     })));
-    // console.log(teams)
+//    // console.log(teams)
     teams.sort((a, b) => a.team.localeCompare(b.team));
-    // console.log("Saved teams:", teams);
+//    // console.log("Saved teams:", teams);
     res.json(teams);
   });
 
@@ -654,7 +654,7 @@ const start = async () => {
     sqlStr += " JOIN kraaktoernooien tn ON tn.id = ktr.toernooiID ";
     sqlStr += " WHERE tn.id = ? ";
     sqlStr += " ORDER BY tn.datum, ktr.ronde, ktr.groep, ktr.tafel";
-    // console.log("SQL:", sqlStr);
+//    // console.log("SQL:", sqlStr);
     const [rows] = await pool.execute(sqlStr, [toernooiID]);
     if (rows.length === 0) {
       return res
@@ -677,8 +677,7 @@ const start = async () => {
 
   const port = process.env.PORT;
   app.listen(port, (0, 0, 0, 0), () =>
-    console.log(`Server draait op http://localhost:${port}`)
-  );
+  console.log(`Server draait op http://localhost:${port}`)  );
 };
 // Roep één keer aan bij opstarten
 cleanupTmpFolder();
