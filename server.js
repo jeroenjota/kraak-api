@@ -286,17 +286,17 @@ const start = async () => {
   });
 
   function calculateTeamScores(matches, teams) {
-//    // console.log("Bereken team scores voor teams:", matches);
+    // console.log("Bereken team scores voor teams:");
     const teamScores = teams.map((team, index) => ({ team, punten: 0 }));
-//    // console.log("Bereken team scores voor teams:", teamScores);
+    // console.log("Team scores voor teams:", teamScores);
     matches.forEach((round, index) => {
       round.forEach((tafel) => {
-//        // console.log(`Ronde ${index + 1}: ${JSON.stringify(tafel)}`);
+        // console.log(`Ronde ${index + 1}: ${JSON.stringify(tafel)}`);
         const teamLIndex = teams.indexOf(tafel.teamL);
         const teamRIndex = teams.indexOf(tafel.teamR);
 //        // console.log(`Team L index: ${teamLIndex}, Team R index: ${teamRIndex}`);
         if (teamLIndex === -1 || teamRIndex === -1) {
-          console.warn(`Team niet gevonden: ${tafel.teamL} of ${tafel.teamR}`);
+          // console.warn(`Team niet gevonden: ${index}: ${tafel.teamL} of ${tafel.teamR}`);
           return;
         }
         teamScores[teamLIndex].punten += tafel.scoreL;
