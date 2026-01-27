@@ -1,7 +1,6 @@
 // server.js
 
 import express from "express";
-import cors from "cors";
 import pool from "./db.js"; // Import the database pool
 
 // const multer = require('multer');
@@ -11,38 +10,24 @@ import pool from "./db.js"; // Import the database pool
 import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from "url";
+import {getBaseUploadPath, getPdfDiskPath, getTmpDiskPath, getPdfPublicUrl } from "./config/uploads.js";
+
+// const __filename = fileURLToPath(import.meta.url);
+// const __dirname = path.dirname(__filename);
+
+// const tmpDir = path.join(__dirname, 'uploads/tmp');
 
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const upload = multer({
+  dest: "/tmp",
+  limits: {
+    fileSize: 10 * 1024 * 1024 // 10 MB
+  }
+});
 
-const tmpDir = path.join(__dirname, 'uploads/tmp');
-
-if (!fs.existsSync(tmpDir)) {
-  fs.mkdirSync(tmpDir, { recursive: true }); // maakt ook tussenliggende mappen aan
-}
-
-
-const upload = multer({ dest: 'uploads/tmp/' });
 
 const app = express();
 
-const allowedOrigins = [
-  "http://localhost:5173",  // development
-  "https://www.jota.nl"     // productie
-];
-
-app.use(cors({
-  origin: function (origin, callback) {
-    // origin is undefined bij curl of server-side request, dus die mag ook
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error("Not allowed by CORS"));
-    }
-  }
-}));
 
 app.use(express.json());
 
@@ -60,20 +45,11 @@ const parseIfNeeded = (value) => {
   return value || [];
 };
 
-function niceDate(date, jaar = false) {
-  if (!date) return "";
-  const d = new Date(date);
-  return d.toLocaleDateString("nl-NL", {
-    day: "numeric",
-    month: "short",
-    ...(jaar && { year: "numeric" }),
-  });
-}
-
 function cleanupTmpFolder() {
 
   const now = Date.now();
   const oneHour = 60 * 60 * 1000;
+  const tmpDir = getTmpDiskPath('');
 
   fs.readdir(tmpDir, (err, files) => {
     if (err) return console.error('Kan tmp/ niet lezen:', err);
@@ -105,8 +81,7 @@ const start = async () => {
   app.put("/toernooien/:id", async (req, res) => {
     const { id } = req.params;
     const { teams, matches, groups, groupMatches, finalMatches, groepsToernooi, repeatRounds, pdfUrl } = req.body;
-//    // console.log('Update toernooi ontvangen:', req.body);
-//    // console.log('Update toernooi data:', {teams, matches, groups, groupMatches, finalMatches, groepsToernooi, repeatRounds });
+    // console.log('Update toernooi ontvangen:', req.body);
     try {
       const sqlStr = 'UPDATE kraaktoernooien SET teams = ?, matches = ?, groups = ?, groupMatches = ?, finalMatches = ?, groepsToernooi = ?, repeatRounds = ?, pdfUrl = ? WHERE id = ?';
       await pool.execute(sqlStr, [
@@ -127,22 +102,33 @@ const start = async () => {
     }
   });
 
-  app.post('/upload', upload.single('file'), (req, res) => {
-    const filename = req.file.originalname.replace(/\s+/g, '-');
+app.post("/upload", upload.single("file"), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: "No file uploaded" });
+  }
 
-    const filepath = path.join('/var/www/laurierboom/uploads/pdfs/', filename);
-//    // console.log(`Bestand ontvangen: ${filename}, opslaan als: ${filepath}`);
+  const filename = req.file.originalname
+    .replace(/\s+/g, "-")
+    .toLowerCase();
 
-    fs.rename(req.file.path, filepath, (err) => {
-      if (err) return res.status(500).json({ error: 'Failed to save PDF' });
-      res.json({ url: `laurierboom/uploads/pdfs/${filename}` });
+  const targetPath = getPdfDiskPath(filename);
+
+  fs.rename(req.file.path, targetPath, (err) => {
+    if (err) {
+      console.error("Upload error:", err);
+      return res.status(500).json({ error: "Failed to save PDF" });
+    }
+
+    res.json({
+      url: getPdfPublicUrl(filename)
     });
   });
+});
 
-  app.get('/pdf-exists/:filename', (req, res) => {
+app.get('/pdf-exists/:filename', (req, res) => {
     const filename = req.params.filename.replace(/\s+/g, '-');
-    const filepath = path.join('/var/www/laurierboom/uploads/pdfs/', filename);
-//    // console.log(`Controleren of PDF bestaat: ${filepath}`);
+    const filepath = getPdfDiskPath(filename);
+    // console.log(`Controleren of PDF bestaat: ${filepath}`);
     fs.access(filepath, fs.constants.F_OK, (err) => {
       if (err) {
         return res.json({ exists: false });
@@ -153,9 +139,9 @@ const start = async () => {
   });
 
   app.post("/toernooien", async (req, res) => {
-//    // console.log('Nieuwe toernooi ontvangen:', req.body);
+    // console.log('Nieuwe toernooi ontvangen:', req.body);
     const { datum, teams, matches, groups, groupMatches, finalMatches, groepsToernooi, repeatRounds, pdfUrl } = req.body;
-//    // console.log('Nieuwe toernooi data:', { datum, teams, matches, groups, groupMatches, finalMatches, groepsToernooi, repeatRounds, pdfUrl });
+    // console.log('Nieuwe toernooi data:', { datum, teams, matches, groups, groupMatches, finalMatches, groepsToernooi, repeatRounds, pdfUrl });
     const [existing] = await pool.execute('SELECT * FROM kraaktoernooien WHERE datum = ?', [datum]);
     if (existing.length > 0) {
       return
@@ -676,7 +662,7 @@ const start = async () => {
   });
 
   const port = process.env.PORT;
-  app.listen(port, (0, 0, 0, 0), () =>
+  app.listen(port, () =>
   console.log(`Server draait op http://localhost:${port}`)  );
 };
 // Roep één keer aan bij opstarten
