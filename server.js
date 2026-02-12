@@ -3,33 +3,34 @@
 import express from "express";
 import pool from "./db.js"; // Import the database pool
 
-// const multer = require('multer');
-// const fs = require('fs');
-// const path = require('path');
+import cors from 'cors';
+import { corsOptions } from './corsConfig.js';
 
 import multer from 'multer';
-import fs from 'fs';
+import fs from 'fs/promises';
+import { constants } from 'fs';
+
 import path from 'path';
-import {getBaseUploadPath, getPdfDiskPath, getTmpDiskPath, getPdfPublicUrl } from "./config/uploads.js";
-
-// const __filename = fileURLToPath(import.meta.url);
-// const __dirname = path.dirname(__filename);
-
-// const tmpDir = path.join(__dirname, 'uploads/tmp');
+import { getBaseUploadPath, getPdfDiskPath, getTmpDiskPath, getPdfPublicUrl } from "./config/uploads.js";
 
 
 const upload = multer({
-  dest: "/tmp",
+  dest: getTmpDiskPath(''),
   limits: {
     fileSize: 10 * 1024 * 1024 // 10 MB
   }
 });
 
 
-const app = express();
 
+const app = express();
+app.use(cors(corsOptions()));
 
 app.use(express.json());
+
+const PDF_BASE_PATH = path.join(process.env.UPLOAD_BASE_PATH, process.env.UPLOAD_PDF_PATH);
+
+app.use('/pdfs', express.static(PDF_BASE_PATH));
 
 // let db = pool;
 
@@ -74,7 +75,7 @@ const start = async () => {
 
   app.get('/ping', (req, res) => {
     res.status(200).json({ status: 'ok' });
-//    // console.log('Ping ontvangen, server is actief');
+    // console.log('Ping ontvangen, server is actief');
   });
 
 
@@ -102,41 +103,54 @@ const start = async () => {
     }
   });
 
-app.post("/upload", upload.single("file"), (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: "No file uploaded" });
-  }
-
-  const filename = req.file.originalname
-    .replace(/\s+/g, "-")
-    .toLowerCase();
-
-  const targetPath = getPdfDiskPath(filename);
-
-  fs.rename(req.file.path, targetPath, (err) => {
-    if (err) {
-      console.error("Upload error:", err);
-      return res.status(500).json({ error: "Failed to save PDF" });
+  // POST /pdfs
+  app.post('/pdfs', upload.single('file'), async (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    res.json({
-      url: getPdfPublicUrl(filename)
-    });
-  });
-});
+    const filename = req.file.originalname
+      .replace(/\s+/g, '-')
+      .toLowerCase();
 
-app.get('/pdf-exists/:filename', (req, res) => {
-    const filename = req.params.filename.replace(/\s+/g, '-');
-    const filepath = getPdfDiskPath(filename);
-    // console.log(`Controleren of PDF bestaat: ${filepath}`);
-    fs.access(filepath, fs.constants.F_OK, (err) => {
-      if (err) {
-        return res.json({ exists: false });
-      } else {
-        return res.json({ exists: true });
-      }
-    });
+    const targetPath = getPdfDiskPath(filename);
+
+    await fs.copyFile(req.file.path, targetPath);
+    await fs.unlink(req.file.path);
+
+    const publicUrl = getPdfPublicUrl(filename);
+
+    res.json({ url: publicUrl, filename , success: true});
   });
+
+  // GET /pdfs/:filename/exists
+  app.get('/pdfs/:filename/exists', async (req, res) => {
+    const filename = path.basename(req.params.filename)
+      .replace(/\s+/g, '-')
+      .toLowerCase();
+
+    const filepath = getPdfDiskPath(filename);
+
+    try {
+      await fs.access(filepath, constants.F_OK);
+      return res.json({ exists: true });
+    } catch {
+      return res.json({ exists: false });
+    }
+  });
+
+  app.get('/pdfs/:filename', async (req, res) => {
+    const filename = path.basename(req.params.filename);
+    const filepath = getPdfDiskPath(filename);
+    console.log("Filename and filepath:", filename, filepath);
+    try {
+      await fs.access(filepath, constants.F_OK);
+      res.sendFile(filepath);
+    } catch {
+      res.status(404).json({ error: 'PDF not found' });
+    }
+  });
+
 
   app.post("/toernooien", async (req, res) => {
     // console.log('Nieuwe toernooi ontvangen:', req.body);
@@ -144,7 +158,7 @@ app.get('/pdf-exists/:filename', (req, res) => {
     // console.log('Nieuwe toernooi data:', { datum, teams, matches, groups, groupMatches, finalMatches, groepsToernooi, repeatRounds, pdfUrl });
     const [existing] = await pool.execute('SELECT * FROM kraaktoernooien WHERE datum = ?', [datum]);
     if (existing.length > 0) {
-      return
+      return res.status(409).json({ error: "Toernooi met deze datum bestaat al" });
     }
     let sqlStr = "INSERT INTO kraaktoernooien (datum, teams, groups, matches, groupMatches, finalMatches, groepsToernooi, repeatRounds, pdfUrl) ";
     sqlStr += "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)";
@@ -207,7 +221,7 @@ app.get('/pdf-exists/:filename', (req, res) => {
       if (rows.length === 0) {
         return res.status(204).json({ error: "Geen toernooi gevonden voor deze datum" });
       }
-//      // console.log("Toernooi gevonden:", rows[0]);
+      //      // console.log("Toernooi gevonden:", rows[0]);
       res.json(rows[0]);
     } catch (error) {
       console.error("Fout bij ophalen toernooi:", error);
@@ -221,14 +235,14 @@ app.get('/pdf-exists/:filename', (req, res) => {
     const sqlStr = "Select pdfUrl from kraaktoernooien where id = " + id;
     const [rows] = await pool.execute(sqlStr);
     if (rows.length === 0) {
-//      // console.log(`Toernooi met id ${id} niet gevonden`);
+      //      // console.log(`Toernooi met id ${id} niet gevonden`);
       return res.status(404).json({ error: "Toernooi niet gevonden" });
     }
     const filename = rows[0].pdfUrl;
     const filepath = path.join('/var/www/laurierboom/uploads/pdfs/', filename);
     if (fs.existsSync(filepath)) {
       fs.unlinkSync(filepath);
-//      // console.log(`PDF verwijderd: ${filepath}`);
+      //      // console.log(`PDF verwijderd: ${filepath}`);
     } else {
       console.warn(`PDF niet gevonden: ${filepath}`);
     }
@@ -237,7 +251,7 @@ app.get('/pdf-exists/:filename', (req, res) => {
       [id]
     );
     if (result.affectedRows === 0) {
-//      // console.log(`Toernooi met id ${id} niet gevonden`);
+      //      // console.log(`Toernooi met id ${id} niet gevonden`);
       return res.status(404).json({ error: "Toernooi niet gevonden" });
     }
 
@@ -264,11 +278,11 @@ app.get('/pdf-exists/:filename', (req, res) => {
     const teamsVerwijderd = await cleanKraakTeams();
     const spelersVerwijderd = await cleanSpelersTable();
 
-//    // console.log(`Opgeruimd: ${teamsVerwijderd.length} teams en ${spelersVerwijderd.length} spelers.`);
-//    // console.log("Teams verwijderd:", teams);
-//    // console.log("Spelers verwijderd:", spelers);
+    //    // console.log(`Opgeruimd: ${teamsVerwijderd.length} teams en ${spelersVerwijderd.length} spelers.`);
+    //    // console.log("Teams verwijderd:", teams);
+    //    // console.log("Spelers verwijderd:", spelers);
     const aantal = teamsVerwijderd.length + spelersVerwijderd.length;
-    res.json({success: true, aantal: aantal, items: {teams: teamsVerwijderd, spelers: spelersVerwijderd} });
+    res.json({ success: true, aantal: aantal, items: { teams: teamsVerwijderd, spelers: spelersVerwijderd } });
   });
 
   function calculateTeamScores(matches, teams) {
@@ -280,14 +294,14 @@ app.get('/pdf-exists/:filename', (req, res) => {
         // console.log(`Ronde ${index + 1}: ${JSON.stringify(tafel)}`);
         const teamLIndex = teams.indexOf(tafel.teamL);
         const teamRIndex = teams.indexOf(tafel.teamR);
-//        // console.log(`Team L index: ${teamLIndex}, Team R index: ${teamRIndex}`);
+        //        // console.log(`Team L index: ${teamLIndex}, Team R index: ${teamRIndex}`);
         if (teamLIndex === -1 || teamRIndex === -1) {
           // console.warn(`Team niet gevonden: ${index}: ${tafel.teamL} of ${tafel.teamR}`);
           return;
         }
         teamScores[teamLIndex].punten += tafel.scoreL;
         teamScores[teamRIndex].punten += tafel.scoreR;
-//        // console.log(`Team L (${teamScores[teamLIndex].team}) score: ${tafel.scoreL}, Team R (${teamScores[teamRIndex].team}) score: ${tafel.scoreR}`);
+        //        // console.log(`Team L (${teamScores[teamLIndex].team}) score: ${tafel.scoreL}, Team R (${teamScores[teamRIndex].team}) score: ${tafel.scoreR}`);
       });
     });
 
@@ -308,7 +322,7 @@ app.get('/pdf-exists/:filename', (req, res) => {
   app.get("/ranking", async (req, res) => {
     const allSpelers = await getSpelersLijst();
     const [toernooien] = await pool.execute("SELECT datum, teams, matches, finalMatches, groepstoernooi FROM kraaktoernooien");
-//    // console.log("Toernooien:", toernooien);
+    //    // console.log("Toernooien:", toernooien);
     const puntenSchema = [12, 9, 6, 3];
     const spelerScores = {}
     toernooien.forEach((toernooi) => {
@@ -318,11 +332,16 @@ app.get('/pdf-exists/:filename', (req, res) => {
           spelerScores[player.naam] = { totaal: 0, scores: [] };
         }
         spelerScores[player.naam].scores.push({ datum: toernooi.datum, punten: 0 });
+        // console.log(`Speler ${player.naam} toegevoegd aan spelerScores`, spelerScores[player.naam].scores[spelerScores[player.naam].scores.length - 1].datum);
       });
-//      // console.log("Toernooi:", toernooi.datum);
+      // console.log("Speler scores initialized for toernooi:", toernooi.datum, spelerScores);
+      // console.log("Toernooi:", toernooi.datum);
       const teams = JSON.parse(toernooi.teams || "[]");
       const matches = JSON.parse(toernooi.matches || "[]");
       const finalMatches = JSON.parse(toernooi.finalMatches || "[]");
+      // console.log("Teams:", teams);
+      // console.log("Matches:", matches);
+      // console.log("Final matches:", finalMatches);
       const groepstoernooi = toernooi.groepstoernooi || false;
       const deelnamePunt = 1; // Elk team krijgt 1 punt voor deelname
       let ranglijst = [];
@@ -336,12 +355,12 @@ app.get('/pdf-exists/:filename', (req, res) => {
         const vierde = derde === derdePlek.teamR ? derdePlek.teamL : derdePlek.teamR;
 
         ranglijst = [winnaar, tweede, derde, vierde];
-//        //console.log("Ranglijst voor groepstoernooi:", ranglijst);
+        // console.log("Ranglijst voor groepstoernooi:", ranglijst);
 
       } else {
         // reguliere toernooi
         const teamScores = calculateTeamScores(JSON.parse(toernooi.matches || "[]"), teams);
-//        // console.log("Team scores:", teamScores);
+        // console.log("Team scores:", teamScores);
         // Wijs de teams toe aan de ranglijst
         for (let i = 0; i < 4; i++) {
           if (i >= teamScores.length) break; // Stop als er minder dan 4 teams zijn
@@ -355,18 +374,18 @@ app.get('/pdf-exists/:filename', (req, res) => {
         // voor het geval de teamspelers in een andere volgorde staan
         const tmSpelers = team.split("/");
         const team2 = `${tmSpelers[1]}/${tmSpelers[0]}`;
-//        // console.log(`Controleer team: ${team} of ${team2}`);
+        // console.log(`Controleer team: ${team} of ${team2}`);
         if (!geplaatsteTeams.has(team) && !geplaatsteTeams.has(team2)) ranglijst.push(team);
       });
-//      // console.log("Ranglijst:", ranglijst);
+      // console.log("Ranglijst:",toernooi.datum, ranglijst);
       ranglijst.forEach((team, positie) => {
         if (!team) return;
         const punten = positie < 4 ? puntenSchema[positie] : deelnamePunt
         const spelers = team.split("/");
         spelers.forEach((speler, index) => {
-          // if(speler.trim() !== ""){
-//          //   console.log(`index: ${index}, Toernooi ${toernooi.datum}, team: ${team}, speler: ${speler}, positie: ${positie + 1}, punten: ${punten}`);
-          // }
+        // if(speler.trim() !== ""){
+        //   console.log(`index: ${index}, Toernooi ${toernooi.datum}, team: ${team}, speler: ${speler}, positie: ${positie + 1}, punten: ${punten}`);
+        // }
 
           updateScore(spelerScores, speler, punten, toernooi.datum);
           updateTotaal(spelerScores, speler);
@@ -374,21 +393,21 @@ app.get('/pdf-exists/:filename', (req, res) => {
       })
 
     })
-//    // console.log("Speler scores:", spelerScores);
+    //    // console.log("Speler scores:", spelerScores);
     const ranking = Object.entries(spelerScores).map(([speler, { totaal, scores }]) => {
-//      // console.log(`Speler: ${speler}, Resultaten:`, scores);
+      //      // console.log(`Speler: ${speler}, Resultaten:`, scores);
       return { speler, totaal, scores };
     });
 
     ranking.sort((a, b) => b.totaal - a.totaal);
     updateRanking(ranking);
-//    // console.log("Ranglijst:", ranking);
+    //    // console.log("Ranglijst:", ranking);
     res.json(ranking);
 
   });
 
   function updateScore(spelerScores, spelerNaam, punten, datum) {
-
+    // console.log(`Update score voor ${spelerNaam} op ${datum}: +${punten} punten`);  
     const scores = spelerScores[spelerNaam].scores;
     const score = scores.find(s => s.datum === datum);
     if (score) {
@@ -453,7 +472,7 @@ app.get('/pdf-exists/:filename', (req, res) => {
         SELECT speler2 FROM kraakTeams
       ) 
     `);
-//    // console.log("Spelers zonder team:", deletedSpelers[0]);
+    //    // console.log("Spelers zonder team:", deletedSpelers[0]);
     if (deletedSpelers[0].length === 0) return [];
     // verwijder deze spelers
     await pool.execute(`
@@ -465,7 +484,7 @@ app.get('/pdf-exists/:filename', (req, res) => {
       )
     `);
     return deletedSpelers[0].map(speler => speler.naam);
-//    // console.log("Spelers zonder team verwijderd");
+    //    // console.log("Spelers zonder team verwijderd");
   }
 
   // verwijder teams die geen enkel toernooi hebben gespeeld
@@ -480,23 +499,23 @@ app.get('/pdf-exists/:filename', (req, res) => {
     const [rows] = await pool.execute(sqlStr);
     if (rows.length === 0) return 0;
     const teams = rows.map(row => row.team);
-//    // console.log("Teams in kraakTeams:", teams);
+    //    // console.log("Teams in kraakTeams:", teams);
     const matchTeams = await pool.execute(`
       SELECT teams FROM kraaktoernooien
     `);
     const tnTeams = matchTeams[0].map(row => row.teams);
-//    // console.log("Teams in toernooien (geflatteerd):", tnTeams);
+    //    // console.log("Teams in toernooien (geflatteerd):", tnTeams);
     if (tnTeams.length === 0) return;
     const parsedTeams = tnTeams.map(item => JSON.parse(item || "[]")).flat();
-//    // console.log("Teams in toernooien (geflatteerd):", parsedTeams.length, parsedTeams);
-//    // console.log("Teams[0]:", tnTeams[0].length, tnTeams[0]);
+    //    // console.log("Teams in toernooien (geflatteerd):", parsedTeams.length, parsedTeams);
+    //    // console.log("Teams[0]:", tnTeams[0].length, tnTeams[0]);
     // maak een set van teams die in toernooien voorkomen
     const teamsInToernooien = [...new Set(parsedTeams)].map(team => normalizeTeam(team)).sort();
-//    // console.log("Unieke teams in toernooien:", teamsInToernooien);
+    //    // console.log("Unieke teams in toernooien:", teamsInToernooien);
     // vergelijk de twee lijsten en verwijder teams die niet in toernooien voorkomen
     const teamsToDelete = teams.filter(team => !teamsInToernooien.includes(normalizeTeam(team)));
-//    // console.log("Te verwijderen teams:", teamsToDelete.length, teamsToDelete);
-    
+    //    // console.log("Te verwijderen teams:", teamsToDelete.length, teamsToDelete);
+
     if (teamsToDelete.length === 0) return [];
 
     for (const team of teamsToDelete) {
@@ -513,7 +532,7 @@ app.get('/pdf-exists/:filename', (req, res) => {
         console.error(`Fout bij verwijderen team ${team}:`, err);
       }
     }
-//    // console.log("Teams zonder toernooien verwijderd:", teamsToDelete);
+    //    // console.log("Teams zonder toernooien verwijderd:", teamsToDelete);
     return teamsToDelete
   }
 
@@ -552,9 +571,9 @@ app.get('/pdf-exists/:filename', (req, res) => {
     const teams = await Promise.all(rows.map(async row => ({
       team: `${await getNaamById(row.speler1)}/${await getNaamById(row.speler2)}`,
     })));
-//    // console.log(teams)
+    //    // console.log(teams)
     teams.sort((a, b) => a.team.localeCompare(b.team));
-//    // console.log("Saved teams:", teams);
+    //    // console.log("Saved teams:", teams);
     res.json(teams);
   });
 
@@ -640,7 +659,7 @@ app.get('/pdf-exists/:filename', (req, res) => {
     sqlStr += " JOIN kraaktoernooien tn ON tn.id = ktr.toernooiID ";
     sqlStr += " WHERE tn.id = ? ";
     sqlStr += " ORDER BY tn.datum, ktr.ronde, ktr.groep, ktr.tafel";
-//    // console.log("SQL:", sqlStr);
+    //    // console.log("SQL:", sqlStr);
     const [rows] = await pool.execute(sqlStr, [toernooiID]);
     if (rows.length === 0) {
       return res
@@ -663,7 +682,7 @@ app.get('/pdf-exists/:filename', (req, res) => {
 
   const port = process.env.PORT;
   app.listen(port, () =>
-  console.log(`Server draait op http://localhost:${port}`)  );
+    console.log(`Server draait op http://localhost:${port}`));
 };
 // Roep één keer aan bij opstarten
 cleanupTmpFolder();

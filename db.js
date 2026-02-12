@@ -8,11 +8,13 @@ const pool = mysql.createPool({
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
-  waitForConnections: true,
   connectionLimit: 10,
-  queueLimit: 0,
-  enableKeepAlive: true,
-  keepAliveInitialDelay: 0, // 0 seconds
 });
+
+console.log("MySQL connection pool created with the following configuration:");
+console.log(`Host: ${process.env.DB_HOST}`);
+console.log(`User: ${process.env.DB_USER}`);
+console.log(`Database: ${process.env.DB_NAME}`);
+console.log(`Connection Limit: 10`);
 
 export default pool;

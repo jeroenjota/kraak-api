@@ -14,11 +14,17 @@ export function getBaseUploadPath() {
 }
 
 export function getPdfDiskPath(filename) {
+  if (filename) {
   return path.join(
     uploadConfig.basePath,
     uploadConfig.pdfPath,
-    filename
-  );
+    filename)
+  } else {
+    return path.join(
+      uploadConfig.basePath,
+      uploadConfig.pdfPath
+    );  
+  };
 }
 
 export function getTmpDiskPath(filename) {
