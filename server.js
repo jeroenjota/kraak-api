@@ -8,7 +8,7 @@ import { corsOptions } from './corsConfig.js';
 
 import multer from 'multer';
 import fs from 'fs/promises';
-import { constants } from 'fs';
+import { constants, existsSync } from 'fs';
 
 import path from 'path';
 import { getBaseUploadPath, getPdfDiskPath, getTmpDiskPath, getPdfPublicUrl } from "./config/uploads.js";
@@ -240,7 +240,7 @@ const start = async () => {
     }
     const filename = rows[0].pdfUrl;
     const filepath = path.join('/var/www/laurierboom/uploads/pdfs/', filename);
-    if (fs.existsSync(filepath)) {
+    if (existsSync(filepath)) {
       fs.unlinkSync(filepath);
       //      // console.log(`PDF verwijderd: ${filepath}`);
     } else {
