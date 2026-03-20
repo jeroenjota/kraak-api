@@ -1,3 +1,9 @@
+/**
+ * uploads.js – file upload path configuration.
+ * Reads base paths and sub-folders from environment variables and exposes
+ * helper functions that resolve absolute disk paths and public URLs for
+ * PDFs, images, and temporary uploads.
+ */
 import path from "path";
 
 export const uploadConfig = {

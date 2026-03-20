@@ -1,3 +1,8 @@
+/**
+ * corsConfig.js – CORS configuration.
+ * Returns different allowed origins for development (localhost) vs production.
+ * Server-to-server requests (no Origin header) are always allowed.
+ */
 const devOrigins = [
   'http://localhost:5173',
   'http://localhost:3000',

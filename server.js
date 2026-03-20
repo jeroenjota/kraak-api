@@ -1,4 +1,26 @@
-// server.js
+/**
+ * server.js – Express REST API for the Kraaktoernooi application.
+ *
+ * Endpoints:
+ *   GET    /ping                     – health check
+ *   GET    /toernooien               – list all tournaments
+ *   GET    /toernooien/:id           – get a single tournament
+ *   POST   /toernooien               – create a tournament
+ *   PUT    /toernooien/:id           – update a tournament
+ *   DELETE /toernooien/:id           – delete a tournament + its PDF
+ *   GET    /tournamentID?datum=      – find tournament by date
+ *   GET    /spelers                  – list all players
+ *   POST   /spelers                  – add a player
+ *   GET    /ranking                  – full player ranking with scores
+ *   GET    /savedTeams               – list saved team pairs
+ *   POST   /standardTeams            – sync standard teams from client
+ *   POST   /cleanTeamsAndPlayers     – remove orphaned teams/players
+ *   POST   /pdfs                     – upload a PDF
+ *   GET    /pdfs/:filename/exists    – check if a PDF exists
+ *   GET    /pdfs/:filename           – serve a PDF file
+ *   POST   /results                  – save match results
+ *   GET    /results?toernooiID=      – get match results for a tournament
+ */
 
 import express from "express";
 import pool from "./db.js"; // Import the database pool
@@ -14,6 +36,7 @@ import path from 'path';
 import { getBaseUploadPath, getPdfDiskPath, getTmpDiskPath, getPdfPublicUrl } from "./config/uploads.js";
 
 
+// Multer setup for PDF uploads with 10 MB limit
 const upload = multer({
   dest: getTmpDiskPath(''),
   limits: {
@@ -28,12 +51,14 @@ app.use(cors(corsOptions()));
 
 app.use(express.json());
 
+// Serve uploaded PDFs as static files
 const PDF_BASE_PATH = path.join(process.env.UPLOAD_BASE_PATH, process.env.UPLOAD_PDF_PATH);
 
 app.use('/pdfs', express.static(PDF_BASE_PATH));
 
 // let db = pool;
 
+// Parse a value as JSON if it's a string, otherwise return it (or [])
 const parseIfNeeded = (value) => {
   if (typeof value === "string") {
     try {
@@ -46,6 +71,7 @@ const parseIfNeeded = (value) => {
   return value || [];
 };
 
+// Remove temporary upload files older than 1 hour
 function cleanupTmpFolder() {
 
   const now = Date.now();
@@ -79,6 +105,8 @@ const start = async () => {
   });
 
 
+  // --- Tournament CRUD ---
+
   app.put("/toernooien/:id", async (req, res) => {
     const { id } = req.params;
     const { teams, matches, groups, groupMatches, finalMatches, groepsToernooi, repeatRounds, pdfUrl } = req.body;
@@ -102,6 +130,8 @@ const start = async () => {
       return res.status(500).json({ error: "Interne serverfout" });
     }
   });
+
+  // --- PDF management ---
 
   // POST /pdfs
   app.post('/pdfs', upload.single('file'), async (req, res) => {
@@ -285,6 +315,7 @@ const start = async () => {
     res.json({ success: true, aantal: aantal, items: { teams: teamsVerwijderd, spelers: spelersVerwijderd } });
   });
 
+  // Calculate team score totals from match rounds (for regular tournaments)
   function calculateTeamScores(matches, teams) {
     // console.log("Bereken team scores voor teams:");
     const teamScores = teams.map((team, index) => ({ team, punten: 0 }));
@@ -313,6 +344,11 @@ const start = async () => {
 
     return teamScores;
   }
+  // --- Ranking calculation ---
+  //
+  // Points scheme: 1st = 12, 2nd = 9, 3rd = 6, 4th = 3, participation = 1.
+  // Each player's total = sum of their best 6 tournament scores.
+
   const getSpelersLijst = async () => {
     // remove spelers die niet in een team zitten
     const [rows] = await pool.execute("SELECT * FROM spelers ORDER BY naam ASC");
@@ -406,6 +442,7 @@ const start = async () => {
 
   });
 
+  // Update a player's score for a specific tournament date
   function updateScore(spelerScores, spelerNaam, punten, datum) {
     // console.log(`Update score voor ${spelerNaam} op ${datum}: +${punten} punten`);  
     const scores = spelerScores[spelerNaam].scores;
@@ -416,11 +453,13 @@ const start = async () => {
 
   }
 
+  // Recalculate a player's total from their best 6 scores
   function updateTotaal(spelerScores, spelerNaam) {
     const totaal = berekenTotaal(spelerScores, spelerNaam);
     spelerScores[spelerNaam].totaal = totaal;
   }
 
+  // Sort players by total and assign rank positions (shared ranks for ties)
   function updateRanking(spelers) {
     spelers.sort((a, b) => b.totaal - a.totaal);
     let vorigTotaal = null;
@@ -438,6 +477,7 @@ const start = async () => {
 
   }
 
+  // Sum a player's best 6 tournament scores
   function berekenTotaal(spelerScores, spelerNaam) {
     const scores = spelerScores[spelerNaam].scores;
     const best6 = scores
@@ -448,6 +488,8 @@ const start = async () => {
 
     return best6.reduce((totaal, punten) => totaal + punten, 0);
   }
+
+  // --- Player & team management helpers ---
 
   async function getOrCreatePlayer(naam) {
     const [rows] = await pool.execute(
@@ -463,6 +505,7 @@ const start = async () => {
     return result.insertId;
   }
 
+  // Remove players that are not part of any team
   async function cleanSpelersTable() {
     // Verwijder spelers die niet in een team zitten
     const deletedSpelers = await pool.execute(`
@@ -536,11 +579,13 @@ const start = async () => {
     return teamsToDelete
   }
 
+  // Normalise a team name so "A/B" and "B/A" are treated the same
   function normalizeTeam(teamName) {
     const [sp1, sp2] = teamName.split("/");
     return [sp1, sp2].sort().join("/");
   }
 
+  // Insert a new team pair if it doesn't already exist; returns true if new
   async function isNewTeam(speler1Id, speler2Id) {
     // Zorg voor vaste volgorde (altijd laagste id eerst)
     const [id1, id2] = speler1Id < speler2Id

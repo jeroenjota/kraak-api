@@ -1,4 +1,8 @@
-
+/**
+ * db.js – MySQL connection pool.
+ * Creates a mysql2/promise pool using credentials from .env.
+ * Shared by all server route handlers.
+ */
 import dotenv from "dotenv";
 import mysql from "mysql2/promise";
 dotenv.config();
