@@ -72,28 +72,28 @@ const parseIfNeeded = (value) => {
 };
 
 // Remove temporary upload files older than 1 hour
-function cleanupTmpFolder() {
+async function cleanupTmpFolder() {
 
   const now = Date.now();
   const oneHour = 60 * 60 * 1000;
   const tmpDir = getTmpDiskPath('');
 
-  fs.readdir(tmpDir, (err, files) => {
-    if (err) return console.error('Kan tmp/ niet lezen:', err);
-
-    files.forEach((file) => {
+  try {
+    const files = await fs.readdir(tmpDir);
+    for (const file of files) {
       const filePath = path.join(tmpDir, file);
-      fs.stat(filePath, (err, stats) => {
-        if (err) return;
-
+      try {
+        const stats = await fs.stat(filePath);
         if (now - stats.mtimeMs > oneHour) {
-          fs.unlink(filePath, (err) => {
-            if (err) console.warn('Kon tijdelijk bestand niet verwijderen:', file);
-          });
+          await fs.unlink(filePath);
         }
-      });
-    });
-  });
+      } catch {
+        // ignore individual file errors
+      }
+    }
+  } catch (err) {
+    console.error('Kan tmp/ niet lezen:', err);
+  }
 }
 
 
@@ -137,6 +137,11 @@ const start = async () => {
   app.post('/pdfs', upload.single('file'), async (req, res) => {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    if (req.file.mimetype !== 'application/pdf') {
+      await fs.unlink(req.file.path).catch(() => {});
+      return res.status(400).json({ error: 'Only PDF files are allowed' });
     }
 
     const filename = req.file.originalname
@@ -216,18 +221,19 @@ const start = async () => {
   });
 
   app.get("/toernooien", async (req, res) => {
-    // // opschonen database, teams zonder deelnames verwijderen 
-    // await cleanKraakTeams();
-    // // en spelers zonder teams verwijderen
-    // await cleanSpelersTable();
-
+    try {
     const [rows] = await pool.execute(
       "SELECT * FROM kraaktoernooien ORDER BY datum DESC"
     );
     res.json(rows);
+  } catch (error) {
+    console.error("Fout bij ophalen toernooien:", error);
+    res.status(500).json({ error: "Interne serverfout" });
+  }
   });
 
   app.get("/toernooien/:id", async (req, res) => {
+    try {
     const { id } = req.params;
     const [rows] = await pool.execute(
       "SELECT * FROM kraaktoernooien WHERE id = ?",
@@ -237,6 +243,10 @@ const start = async () => {
       return res.status(404).json({ error: "Toernooi niet gevonden" });
     }
     res.json(rows[0]);
+  } catch (error) {
+    console.error("Fout bij ophalen toernooi:", error);
+    res.status(500).json({ error: "Interne serverfout" });
+  }
   });
 
   app.get("/tournamentID", async (req, res) => {
@@ -261,50 +271,66 @@ const start = async () => {
 
   app.delete("/toernooien/:id", async (req, res) => {
     const { id } = req.params;
-
-    const sqlStr = "Select pdfUrl from kraaktoernooien where id = " + id;
-    const [rows] = await pool.execute(sqlStr);
+    try {
+    const [rows] = await pool.execute(
+      "SELECT pdfUrl FROM kraaktoernooien WHERE id = ?",
+      [id]
+    );
     if (rows.length === 0) {
-      //      // console.log(`Toernooi met id ${id} niet gevonden`);
       return res.status(404).json({ error: "Toernooi niet gevonden" });
     }
     const filename = rows[0].pdfUrl;
-    const filepath = path.join('/var/www/laurierboom/uploads/pdfs/', filename);
-    if (existsSync(filepath)) {
-      fs.unlinkSync(filepath);
-      //      // console.log(`PDF verwijderd: ${filepath}`);
-    } else {
-      console.warn(`PDF niet gevonden: ${filepath}`);
+    if (filename) {
+      const filepath = getPdfDiskPath(filename);
+      if (existsSync(filepath)) {
+        await fs.unlink(filepath);
+      } else {
+        console.warn(`PDF niet gevonden: ${filepath}`);
+      }
     }
     const [result] = await pool.execute(
       "DELETE FROM kraaktoernooien WHERE id = ?",
       [id]
     );
     if (result.affectedRows === 0) {
-      //      // console.log(`Toernooi met id ${id} niet gevonden`);
       return res.status(404).json({ error: "Toernooi niet gevonden" });
     }
 
     res.sendStatus(204);
+    } catch (error) {
+      console.error("Fout bij verwijderen toernooi:", error);
+      res.status(500).json({ error: "Interne serverfout" });
+    }
   });
 
   app.post("/spelers", async (req, res) => {
+    try {
     const { naam } = req.body;
-    const sp = await pool.execute(
+    const [rows] = await pool.execute(
       "SELECT * FROM spelers WHERE naam = ?", [naam]
     );
-    if (!p[0].length > 0) {
+    if (rows.length === 0) {
       await pool.execute("INSERT INTO spelers (naam) VALUES (?)", [naam]);
     }
     res.sendStatus(201);
+    } catch (error) {
+      console.error("Fout bij toevoegen speler:", error);
+      res.status(500).json({ error: "Interne serverfout" });
+    }
   });
 
   app.get("/spelers", async (req, res) => {
+    try {
     const [rows] = await pool.execute("SELECT * FROM spelers ORDER BY naam ASC");
     res.json(rows);
+    } catch (error) {
+      console.error("Fout bij ophalen spelers:", error);
+      res.status(500).json({ error: "Interne serverfout" });
+    }
   });
 
   app.post("/cleanTeamsAndPlayers", async (req, res) => {
+    try {
     const teamsVerwijderd = await cleanKraakTeams();
     const spelersVerwijderd = await cleanSpelersTable();
 
@@ -313,6 +339,10 @@ const start = async () => {
     //    // console.log("Spelers verwijderd:", spelers);
     const aantal = teamsVerwijderd.length + spelersVerwijderd.length;
     res.json({ success: true, aantal: aantal, items: { teams: teamsVerwijderd, spelers: spelersVerwijderd } });
+    } catch (error) {
+      console.error("Fout bij opschonen teams en spelers:", error);
+      res.status(500).json({ error: "Interne serverfout" });
+    }
   });
 
   // Calculate team score totals from match rounds (for regular tournaments)
@@ -348,6 +378,13 @@ const start = async () => {
   //
   // Points scheme: 1st = 12, 2nd = 9, 3rd = 6, 4th = 3, participation = 1.
   // Each player's total = sum of their best 6 tournament scores.
+
+  // TODO: Points depending on number of teams. 
+  // 8 teams: 1st = 16, 2nd = 13, 3rd = 8, 4th = 3, 5-8 = 1
+  // 7 teams: 1st = 14, 2nd = 11, 3rd = 6, 4th = 2, 5-7 = 1
+  // 6 teams: 1st = 12, 2nd = 9, 3rd = 4, 4-6 = 1
+  // 5 teams: 1st = 10, 2nd = 6, 3-5 = 1
+  // 4 teams: 1st = 8, 2nd = 4, 3rd = 1, 4th = 1
 
   const getSpelersLijst = async () => {
     // remove spelers die niet in een team zitten
@@ -612,14 +649,17 @@ const start = async () => {
   }
 
   app.get("/savedTeams", async (req, res) => {
+    try {
     const [rows] = await pool.execute("SELECT * FROM kraakTeams");
     const teams = await Promise.all(rows.map(async row => ({
       team: `${await getNaamById(row.speler1)}/${await getNaamById(row.speler2)}`,
     })));
-    //    // console.log(teams)
     teams.sort((a, b) => a.team.localeCompare(b.team));
-    //    // console.log("Saved teams:", teams);
     res.json(teams);
+    } catch (error) {
+      console.error("Fout bij ophalen savedTeams:", error);
+      res.status(500).json({ error: "Interne serverfout" });
+    }
   });
 
   app.post("/standardTeams", async (req, res) => {
@@ -659,16 +699,25 @@ const start = async () => {
   });
 
   app.get("/teams", async (req, res) => {
+    try {
     const [rows] = await pool.execute("SELECT * FROM kraakTeams");
     res.json(rows);
+    } catch (error) {
+      console.error("Fout bij ophalen teams:", error);
+      res.status(500).json({ error: "Interne serverfout" });
+    }
   });
 
   app.get("/teamSpelers", async (req, res) => {
-    // deze view geeft de teams met spelernamen weer
+    try {
     const [rows] = await pool.execute(
       "SELECT teamID, team FROM teamSpelers ORDER BY team"
     );
     res.json(rows);
+    } catch (error) {
+      console.error("Fout bij ophalen teamSpelers:", error);
+      res.status(500).json({ error: "Interne serverfout" });
+    }
   });
 
   app.post("/results", async (req, res) => {

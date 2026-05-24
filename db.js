@@ -15,10 +15,7 @@ const pool = mysql.createPool({
   connectionLimit: 10,
 });
 
-console.log("MySQL connection pool created with the following configuration:");
-console.log(`Host: ${process.env.DB_HOST}`);
-console.log(`User: ${process.env.DB_USER}`);
+console.log("MySQL connection pool created.");
 console.log(`Database: ${process.env.DB_NAME}`);
-console.log(`Connection Limit: 10`);
 
 export default pool;
