@@ -18,6 +18,8 @@
  *   POST   /pdfs                     – upload a PDF
  *   GET    /pdfs/:filename/exists    – check if a PDF exists
  *   GET    /pdfs/:filename           – serve a PDF file
+ *   POST   /events/log               – append a tournament event to server log file
+ *   POST   /score-entries/log        – append a score entry to server log file
  *   POST   /results                  – save match results
  *   GET    /results?toernooiID=      – get match results for a tournament
  */
@@ -50,6 +52,10 @@ const app = express();
 app.use(cors(corsOptions()));
 
 app.use(express.json());
+
+const SCORE_LOG_DIR = path.join(getBaseUploadPath(), "logs");
+const SCORE_LOG_FILE = path.join(SCORE_LOG_DIR, "tournament-score-entries.log");
+const EVENT_LOG_FILE = path.join(SCORE_LOG_DIR, "tournament-events.log");
 
 // Serve uploaded PDFs as static files
 const PDF_BASE_PATH = path.join(process.env.UPLOAD_BASE_PATH, process.env.UPLOAD_PDF_PATH);
@@ -183,6 +189,90 @@ const start = async () => {
       res.sendFile(filepath);
     } catch {
       res.status(404).json({ error: 'PDF not found' });
+    }
+  });
+
+  app.post('/events/log', async (req, res) => {
+    const {
+      eventType,
+      tournamentId = null,
+      tournamentDate = null,
+      actor = 'frontend',
+      details = {},
+    } = req.body || {};
+
+    if (!eventType || typeof eventType !== 'string') {
+      return res.status(400).json({ error: 'eventType is verplicht' });
+    }
+
+    const logEntry = {
+      timestamp: new Date().toISOString(),
+      ip: req.ip,
+      eventType,
+      tournamentId,
+      tournamentDate,
+      actor,
+      details,
+    };
+
+    try {
+      await fs.mkdir(SCORE_LOG_DIR, { recursive: true });
+      await fs.appendFile(EVENT_LOG_FILE, `${JSON.stringify(logEntry)}\n`, 'utf8');
+      return res.status(201).json({ success: true });
+    } catch (error) {
+      console.error('Fout bij wegschrijven event-log:', error);
+      return res.status(500).json({ error: 'Kon event-log niet wegschrijven' });
+    }
+  });
+
+  app.post('/score-entries/log', async (req, res) => {
+    const {
+      tournamentId = null,
+      tournamentDate = null,
+      round = null,
+      group = null,
+      matchType = 'group',
+      table = null,
+      place = null,
+      teamL = null,
+      teamR = null,
+      oldScoreL = null,
+      oldScoreR = null,
+      scoreL,
+      scoreR,
+      actionType = 'update',
+    } = req.body || {};
+
+    if (!Number.isFinite(Number(scoreL)) || !Number.isFinite(Number(scoreR))) {
+      return res.status(400).json({ error: 'scoreL and scoreR must be numeric values' });
+    }
+
+    const logEntry = {
+      timestamp: new Date().toISOString(),
+      tournamentId,
+      tournamentDate,
+      ip: req.ip,
+      round,
+      group,
+      matchType,
+      table,
+      place,
+      teamL,
+      teamR,
+      oldScoreL,
+      oldScoreR,
+      scoreL: Number(scoreL),
+      scoreR: Number(scoreR),
+      actionType,
+    };
+
+    try {
+      await fs.mkdir(SCORE_LOG_DIR, { recursive: true });
+      await fs.appendFile(SCORE_LOG_FILE, `${JSON.stringify(logEntry)}\n`, 'utf8');
+      return res.status(201).json({ success: true });
+    } catch (error) {
+      console.error('Fout bij wegschrijven score-log:', error);
+      return res.status(500).json({ error: 'Kon score-log niet wegschrijven' });
     }
   });
 
